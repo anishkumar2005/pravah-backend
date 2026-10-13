@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Pravaah — Live Flood Risk Map</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Arial, sans-serif; }
+  body { background: #0f1720; color: #e8eef4; }
+
+  header {
+    padding: 18px 24px;
+    background: #142033;
+    border-bottom: 1px solid #24344a;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  header h1 { font-size: 20px; font-weight: 700; color: #ffffff; }
+  header .sub { font-size: 12.5px; color: #8fa3bb; margin-top: 2px; }
+
+  #status {
+    font-size: 12px;
+    padding: 6px 12px;
+    border-radius: 999px;
+    background: #1e3a2b;
+    color: #6fd89a;
+    font-weight: 600;
+  }
+  #status.error { background: #3a1e1e; color: #e08080; }
+
+  #map { height: calc(100vh - 74px); width: 100%; }
+
+  .legend {
+    position: absolute;
+    bottom: 24px;
+    left: 24px;
+    z-index: 500;
+    background: #142033ee;
+    border: 1px solid #24344a;
+    border-radius: 10px;
+    padding: 12px 16px;
+    font-size: 12.5px;
+    color: #dbe6f0;
+  }
+  .legend div { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
+  .dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
+
+  .leaflet-popup-content-wrapper {
+    background: #142033;
+    color: #e8eef4;
+    border-radius: 10px;
+  }
+  .leaflet-popup-tip { background: #142033; }
+  .popup-title { font-weight: 700; font-size: 14px; margin-bottom: 6px; }
+  .popup-row { font-size: 12.5px; color: #b7c6d6; margin: 2px 0; }
+  .popup-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+    margin-top: 6px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>Pravaah — Live Flood Risk Map</h1>
+    <div class="sub">Real-time drain water level monitoring</div>
+  </div>
+  <div id="status">Connecting…</div>
+</header>
+
+<div id="map"></div>
+
+<div class="legend">
+  <div><span class="dot" style="background:#3fbf6f"></span> Safe</div>
+  <div><span class="dot" style="background:#e8b93f"></span> Watch</div>
+  <div><span class="dot" style="background:#e0524f"></span> Critical</div>
+</div>
+
+<script>
+  // ---------- CONFIG: change this to YOUR Render backend URL ----------
+  // Opened from the Render server: uses that same server automatically.
+  // Opened as a local file: falls back to the Render address below.
+  const RENDER_URL = "https://pravah-backend-jt0u.onrender.com";
+  const HOSTED = location.protocol.startsWith('http');
+  const BACKEND_URL = HOSTED ? location.origin : RENDER_URL;
+  const REFRESH_INTERVAL_MS = 15000; // 15 seconds
+
+  // Default map center — change to your city's coordinates
+  // Starts on the Easwari Engineering College area, Ramapuram, Chennai (approximate).
+  const map = L.map('map').setView([13.0334, 80.1795], 16);
+  let centeredOnSensor = false;
+
+  // Map background. If one tile server is blocked or slow, the map switches to the next one.
+  // OpenStreetMap is the open-source map. Its servers only accept requests from a real web
+  // address, so when this page is opened as a local file the Esri map is used instead.
+  const OSM  = { url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                 opts: { attribution: '&copy; OpenStreetMap contributors', maxZoom: 19 } };
+  const ESRI = { url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
+                 opts: { attribution: 'Tiles &copy; Esri', maxZoom: 19 } };
+  const TILE_PROVIDERS = HOSTED ? [OSM, ESRI] : [ESRI, OSM];
+  let providerIdx = 0, tileLayer = null, tileErrors = 0, tileOk = false;
+
+  function useProvider(i) {
+    if (tileLayer) map.removeLayer(tileLayer);
+    providerIdx = i; tileErrors = 0; tileOk = false;
+    tileLayer = L.tileLayer(TILE_PROVIDERS[i].url, TILE_PROVIDERS[i].opts).addTo(map);
+    tileLayer.on('tileload', () => { tileOk = true; });
+    tileLayer.on('tileerror', () => {
+      tileErrors++;
+      if (tileOk || tileErrors < 3) return;
+      if (providerIdx < TILE_PROVIDERS.length - 1) useProvider(providerIdx + 1);
+      else document.getElementById('status').textContent = 'Map background blocked, markers still work';
+    });
+  }
+  useProvider(0);
+
+  const markers = {}; // node_id -> Leaflet marker
+
+  function colorFor(riskLevel) {
+    if (riskLevel === "critical") return "#e0524f";
+    if (riskLevel === "watch") return "#e8b93f";
+    return "#3fbf6f";
+  }
+
+  function badgeStyle(riskLevel) {
+    const c = colorFor(riskLevel);
+    return `background:${c}22; color:${c}; border:1px solid ${c};`;
+  }
+
+  function popupHTML(node) {
+    return `
+      <div class="popup-title">${node.node_id}</div>
+      <div class="popup-row">Water level: ${node.water_level_cm ?? '—'} cm</div>
+      <div class="popup-row">Rate of rise: ${node.rate_of_rise_cm_per_min ?? '—'} cm/min</div>
+      <div class="popup-row">Capacity used: ${node.percent_full ?? '—'}%</div>
+      <span class="popup-badge" style="${badgeStyle(node.risk_level)}">${(node.risk_level || 'unknown').toUpperCase()}</span>
+    `;
+  }
+
+  async function fetchAndUpdate() {
+    const statusEl = document.getElementById('status');
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/nodes`);
+      if (!res.ok) throw new Error("Bad response");
+      const nodes = await res.json();
+
+      statusEl.textContent = `Live · ${nodes.length} node${nodes.length !== 1 ? 's' : ''}`;
+      statusEl.classList.remove('error');
+
+      // The first time a sensor reports, zoom the map to it.
+      if (!centeredOnSensor && nodes.length && nodes[0].lat !== undefined) {
+        map.setView([nodes[0].lat, nodes[0].lng], 17);
+        centeredOnSensor = true;
+      }
+
+      nodes.forEach(node => {
+        if (node.lat === undefined || node.lng === undefined) return;
+
+        if (markers[node.node_id]) {
+          // update existing marker
+          markers[node.node_id].setStyle({ color: colorFor(node.risk_level), fillColor: colorFor(node.risk_level) });
+          markers[node.node_id].setPopupContent(popupHTML(node));
+        } else {
+          // create new marker
+          const marker = L.circleMarker([node.lat, node.lng], {
+            radius: 12,
+            color: colorFor(node.risk_level),
+            fillColor: colorFor(node.risk_level),
+            fillOpacity: 0.75,
+            weight: 2
+          }).addTo(map);
+          marker.bindPopup(popupHTML(node));
+          markers[node.node_id] = marker;
+        }
+      });
+    } catch (err) {
+      statusEl.textContent = "Connection issue — retrying…";
+      statusEl.classList.add('error');
+      console.error(err);
+    }
+  }
+
+  fetchAndUpdate();
+  setInterval(fetchAndUpdate, REFRESH_INTERVAL_MS);
+</script>
+
+</body>
+</html>
