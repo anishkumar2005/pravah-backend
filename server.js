@@ -3,10 +3,16 @@
 
 const express = require('express');
 const cors = require('cors');
+const path = require('path');
 
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+// ---------- Serve the dashboards from this same server ----------
+app.use(express.static(path.join(__dirname, 'public')));
+app.get('/map', (req, res) => res.sendFile(path.join(__dirname, 'public', 'map.html')));
+app.get('/dashboard', (req, res) => res.sendFile(path.join(__dirname, 'public', 'dashboard.html')));
 
 // ---------- IN-MEMORY STORAGE (simple for demo) ----------
 let readings = {}; // keyed by node_id, stores latest + history
