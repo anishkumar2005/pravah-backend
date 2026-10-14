@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Live map and safe routes | Pravaah</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<link rel="stylesheet" href="/app.css">
+<style>
+  .layout { display: grid; grid-template-columns: 390px 1fr; height: calc(100vh - 63px); }
+  .side { overflow-y: auto; padding: 16px; background: var(--bg); border-right: 1px solid var(--line); }
+  #map { position: relative; z-index: 0; height: 100%; width: 100%; background: #e8ecef; }
+
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 18px; margin-bottom: 14px; }
+  .card h2 { font-size: 16px; font-weight: 600; }
+  .hint { font-size: 13.5px; color: var(--ink-2); margin: 4px 0 14px; }
+
+  .field { margin-bottom: 12px; position: relative; }
+  .field label { display: block; font-size: 13.5px; font-weight: 600; margin-bottom: 5px; }
+  .inputrow { display: flex; gap: 6px; }
+  .inputrow input { flex: 1; min-width: 0; padding: 10px 11px; border: 1px solid #C3CFDA; border-radius: 8px; font-size: 14.5px; color: var(--ink); background: #fff; }
+  .inputrow input:focus { border-color: var(--water); outline: 2px solid var(--water-soft); }
+  .icon-btn { border: 1px solid #C3CFDA; background: #fff; color: var(--ink-2); border-radius: 8px; width: 42px; display: grid; place-items: center; }
+  .icon-btn:hover { background: var(--water-soft); color: var(--water); }
+  .link { background: none; border: none; color: var(--water); font-size: 13px; font-weight: 600; padding: 6px 0 0; }
+  .link:hover { text-decoration: underline; }
+
+  .results { list-style: none; border: 1px solid var(--line); border-radius: 8px; margin-top: 6px; background: #fff; max-height: 190px; overflow-y: auto; }
+  .results li button { width: 100%; text-align: left; background: none; border: none; padding: 9px 11px; font-size: 13.5px; color: var(--ink); border-bottom: 1px solid var(--line-2); }
+  .results li:last-child button { border-bottom: none; }
+  .results li button:hover { background: var(--water-soft); }
+  .results .none { padding: 9px 11px; font-size: 13.5px; color: var(--ink-2); }
+
+  .actions { display: flex; gap: 8px; margin-top: 4px; }
+  .actions .btn:first-child { flex: 1; }
+
+  .result { margin-top: 14px; border-radius: 10px; padding: 12px 14px; font-size: 14px; background: var(--safe-soft); color: #0F5A3B; }
+  .result.rerouted { background: var(--water-soft); color: #08506F; }
+  .result.unavoidable { background: var(--watch-soft); color: #6B4400; }
+  .result.error { background: var(--crit-soft); color: #8E241C; }
+  .result strong { display: block; font-size: 14.5px; font-weight: 600; margin-bottom: 2px; }
+  .stats { display: flex; gap: 22px; margin-top: 10px; font-size: 13.5px; }
+  .stats b { display: block; font-size: 18px; font-weight: 600; color: var(--ink); }
+  .notes { margin-top: 8px; font-size: 13px; }
+  .keyline { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 13px; color: var(--ink-2); }
+  .keyline i { width: 26px; height: 0; border-top: 4px solid #0B6E99; border-radius: 2px; }
+  .keyline i.dash { border-top: 3px dashed #D9382C; }
+
+  details summary { font-size: 14px; font-weight: 600; cursor: pointer; color: var(--ink-2); }
+  details p { font-size: 13px; color: var(--ink-2); margin: 8px 0; }
+  details .btn { margin-right: 8px; }
+
+  .drain { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 10px 0; border-bottom: 1px solid var(--line-2); width: 100%; background: none; border-left: none; border-right: none; border-top: none; text-align: left; }
+  .drain:last-child { border-bottom: none; }
+  .drain:hover .did { color: var(--water); }
+  .did { font-weight: 600; font-size: 14.5px; }
+  .dsub { font-size: 12.5px; color: var(--ink-2); }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+  .chips .badge { font-size: 12px; padding: 3px 9px; }
+  .empty { font-size: 13.5px; color: var(--ink-2); padding: 6px 0; }
+
+  .legend { font-size: 13px; color: var(--ink-2); }
+  .legend div { display: flex; align-items: center; gap: 8px; margin: 5px 0; }
+  .dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+  .zone { width: 14px; height: 14px; border-radius: 50%; border: 2px dashed #D9382C; background: rgba(217,56,44,.12); flex-shrink: 0; }
+
+  .pin { width: 28px; height: 28px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); display: grid; place-items: center; border: 2px solid #fff; box-shadow: 0 2px 6px rgba(0,0,0,.35); }
+  .pin span { transform: rotate(45deg); color: #fff; font-weight: 700; font-size: 13px; }
+  .pin.a { background: #177A52; } .pin.b { background: #12263A; }
+  .leaflet-popup-content { font-family: 'IBM Plex Sans', 'Segoe UI', sans-serif; font-size: 13.5px; color: #12263A; }
+  .pop-title { font-weight: 600; font-size: 15px; margin-bottom: 6px; }
+  .pop-row { color: #4A5E72; margin: 2px 0; }
+
+  @media (max-width: 860px) {
+    .layout { grid-template-columns: 1fr; grid-template-rows: auto 70vh; height: auto; }
+    .side { border-right: none; border-bottom: 1px solid var(--line); max-height: none; }
+  }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <a class="brand" href="/">
+    <span class="brand-mark" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3s6 6.2 6 10.5a6 6 0 0 1-12 0C6 9.2 12 3 12 3z"/></svg></span>
+    <span><span class="name">Pravaah</span><span class="tag">Live flood map</span></span>
+  </a>
+  <div class="nav-wrap" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+    <span class="pill" id="status" role="status" aria-live="polite"><span class="dot"></span><span id="statusText">Connecting</span></span>
+    <nav class="nav" aria-label="Main">
+      <a href="/">Home</a>
+      <a href="/map" aria-current="page">Live map</a>
+      <a href="/dashboard">Staff dashboard</a>
+    </nav>
+  </div>
+</header>
+
+<div class="layout">
+  <aside class="side" id="side">
+    <section class="card" id="planner" aria-labelledby="plannerTitle">
+      <h2 id="plannerTitle">Plan a safe route</h2>
+      <p class="hint">Enter where you are and where you are going. We will steer you around flooded drains.</p>
+
+      <div class="field">
+        <label for="fromInput">From</label>
+        <div class="inputrow">
+          <input id="fromInput" placeholder="Starting point" autocomplete="off">
+          <button class="icon-btn" id="fromSearch" type="button" aria-label="Search for the starting point"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></button>
+        </div>
+        <ul class="results" id="fromResults" hidden></ul>
+        <button class="link" id="useLocation" type="button">Use my current location</button>
+      </div>
+
+      <div class="field">
+        <label for="toInput">To</label>
+        <div class="inputrow">
+          <input id="toInput" placeholder="Destination" autocomplete="off">
+          <button class="icon-btn" id="toSearch" type="button" aria-label="Search for the destination"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></button>
+        </div>
+        <ul class="results" id="toResults" hidden></ul>
+      </div>
+
+      <div class="actions">
+        <button class="btn" id="goBtn" type="button">Find safe route</button>
+        <button class="btn ghost" id="swapBtn" type="button">Swap</button>
+      </div>
+
+      <div class="result" id="routeResult" hidden aria-live="polite"></div>
+
+      <details style="margin-top:16px">
+        <summary>Demo tools</summary>
+        <p>No flooded drain on your route? Add a pretend overflow on the map to see how rerouting works.</p>
+        <button class="btn ghost" id="testBtn" type="button">Add a test overflow</button>
+        <button class="link" id="clearTest" type="button">Remove test points</button>
+      </details>
+    </section>
+
+    <section class="card" aria-labelledby="drainsTitle">
+      <h2 id="drainsTitle">Drains right now</h2>
+      <div id="drainList"><div class="empty">Waiting for sensor data.</div></div>
+    </section>
+
+    <section class="card legend" aria-label="Map key">
+      <div><span class="dot" style="background:#1E9E68"></span> Clear</div>
+      <div><span class="dot" style="background:#E39A0B"></span> Filling up</div>
+      <div><span class="dot" style="background:#D9382C"></span> Overflow risk</div>
+      <div><span class="zone"></span> Area the safe route stays away from</div>
+    </section>
+  </aside>
+
+  <div id="map" role="application" aria-label="Map of drains and routes"></div>
+</div>
+
+<script>
+  // ---------- map ----------
+  const map = L.map('map').setView([13.0334, 80.1795], 15);   // Easwari Engineering College area, until a sensor reports
+  let tileLayer = null, tileErrors = 0, tileOk = false, usingEsri = false;
+  function addTiles(esri) {
+    if (tileLayer) map.removeLayer(tileLayer);
+    usingEsri = esri; tileErrors = 0; tileOk = false;
+    tileLayer = esri
+      ? L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', { attribution: 'Tiles &copy; Esri', maxZoom: 19 })
+      : L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap contributors', maxZoom: 19 });
+    tileLayer.on('tileload', () => { tileOk = true; });
+    tileLayer.on('tileerror', () => { tileErrors++; if (!tileOk && tileErrors >= 3 && !usingEsri) addTiles(true); });
+    tileLayer.addTo(map);
+  }
+  addTiles(false);
+
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const COLORS = { safe: '#1E9E68', watch: '#E39A0B', critical: '#D9382C' };
+  const RISK_WORD = { safe: 'Clear', watch: 'Filling up', critical: 'Overflow risk' };
+  const WORK_CHIP = { alert: 'Waiting for crew', crew_assigned: 'Crew assigned', in_progress: 'Work in progress', cleaned: 'Cleaned' };
+  const fmt = (v, d = 1) => (v === undefined || v === null || isNaN(v)) ? '-' : Number(v).toFixed(d).replace(/\.0+$/, '');
+
+  // ---------- live drains ----------
+  const nodeLayers = {};
+  let nodesCache = [], centred = false;
+
+  function popupHTML(n) {
+    const work = WORK_CHIP[n.work_status] ? `<div class="pop-row"><b>${esc(WORK_CHIP[n.work_status])}</b></div>` : '';
+    return `<div class="pop-title">${esc(n.node_id)}</div>
+      <span class="badge ${esc(n.risk_level || 'safe')}">${RISK_WORD[n.risk_level] || 'Clear'}</span>
+      <div style="margin-top:6px">${work}
+      <div class="pop-row">Water level: ${fmt(n.water_level_cm)} cm</div>
+      <div class="pop-row">Drain full: ${fmt(n.percent_full, 0)}%</div>
+      <div class="pop-row">Rate of rise: ${fmt(n.rate_of_rise_cm_per_min, 2)} cm/min</div></div>`;
+  }
+
+  function renderNodes(nodes) {
+    const seen = new Set();
+    nodes.forEach(n => {
+      if (typeof n.lat !== 'number' || typeof n.lng !== 'number') return;
+      seen.add(n.node_id);
+      const color = COLORS[n.risk_level] || COLORS.safe;
+      let l = nodeLayers[n.node_id];
+      if (!l) {
+        l = nodeLayers[n.node_id] = { marker: L.circleMarker([n.lat, n.lng], { radius: 11, weight: 2, fillOpacity: 0.85 }).addTo(map), zone: null };
+        l.marker.bindPopup(popupHTML(n));
+      }
+      l.marker.setLatLng([n.lat, n.lng]).setStyle({ color, fillColor: color }).setPopupContent(popupHTML(n));
+      if (n.risk_level === 'critical') {
+        if (!l.zone) l.zone = L.circle([n.lat, n.lng], { radius: n.hazard_radius_m || 250, color: '#D9382C', weight: 1.5, dashArray: '6 4', fillColor: '#D9382C', fillOpacity: 0.12, interactive: false }).addTo(map);
+        else l.zone.setLatLng([n.lat, n.lng]);
+      } else if (l.zone) { map.removeLayer(l.zone); l.zone = null; }
+    });
+    Object.keys(nodeLayers).forEach(id => {
+      if (!seen.has(id)) { map.removeLayer(nodeLayers[id].marker); if (nodeLayers[id].zone) map.removeLayer(nodeLayers[id].zone); delete nodeLayers[id]; }
+    });
+    if (!centred && seen.size && !routeLine) {
+      const n = nodes.find(x => typeof x.lat === 'number');
+      map.setView([n.lat, n.lng], 16); centred = true;
+    }
+  }
+
+  function renderList(nodes) {
+    const box = $('drainList');
+    if (!nodes.length) { box.innerHTML = '<div class="empty">Waiting for sensor data.</div>'; return; }
+    const order = { critical: 0, watch: 1, safe: 2 };
+    box.innerHTML = [...nodes].sort((a, b) => (order[a.risk_level] ?? 3) - (order[b.risk_level] ?? 3)).map(n => `
+      <button class="drain" data-id="${esc(n.node_id)}">
+        <span><span class="did">${esc(n.node_id)}</span><br><span class="dsub">${fmt(n.percent_full, 0)}% full</span></span>
+        <span class="chips"><span class="badge ${esc(n.risk_level || 'safe')}">${RISK_WORD[n.risk_level] || 'Clear'}</span>${WORK_CHIP[n.work_status] ? `<span class="badge work">${esc(WORK_CHIP[n.work_status])}</span>` : ''}</span>
+      </button>`).join('');
+    box.querySelectorAll('.drain').forEach(b => b.onclick = () => {
+      const l = nodeLayers[b.dataset.id];
+      if (l) { map.setView(l.marker.getLatLng(), 17); l.marker.openPopup(); }
+    });
+  }
+
+  async function loadNodes() {
+    try {
+      const r = await fetch('/api/nodes');
+      if (!r.ok) throw new Error('bad');
+      nodesCache = await r.json();
+      $('status').className = 'pill';
+      $('statusText').textContent = 'Live, ' + nodesCache.length + (nodesCache.length === 1 ? ' drain' : ' drains');
+      renderNodes(nodesCache); renderList(nodesCache);
+    } catch (e) {
+      $('status').className = 'pill error';
+      $('statusText').textContent = 'Cannot reach server, retrying';
+    }
+  }
+
+  // ---------- safe route planner ----------
+  const pts = { from: null, to: null };
+  const ptMarkers = { from: null, to: null };
+  let routeLine = null, fastestLine = null;
+  let testMode = false;
+  const testHazards = [], testLayers = [];
+
+  function pinIcon(cls, letter) {
+    return L.divIcon({ className: '', html: `<div class="pin ${cls}"><span>${letter}</span></div>`, iconSize: [28, 28], iconAnchor: [14, 28] });
+  }
+  function setPoint(which, p) {
+    pts[which] = p;
+    if (ptMarkers[which]) map.removeLayer(ptMarkers[which]);
+    ptMarkers[which] = L.marker([p.lat, p.lng], { icon: pinIcon(which === 'from' ? 'a' : 'b', which === 'from' ? 'A' : 'B') }).addTo(map);
+  }
+  const shortName = n => String(n).split(',').slice(0, 2).join(',').trim();
+
+  async function geocode(q) {
+    const r = await fetch('/api/geocode?q=' + encodeURIComponent(q));
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || 'Place search failed.');
+    return data;
+  }
+  function choose(which, place) {
+    $(which + 'Input').value = shortName(place.name);
+    $(which + 'Results').hidden = true;
+    setPoint(which, { lat: place.lat, lng: place.lng, name: place.name });
+  }
+  async function search(which) {
+    const q = $(which + 'Input').value.trim();
+    const ul = $(which + 'Results');
+    if (q.length < 3) { ul.innerHTML = '<li class="none">Type at least 3 letters.</li>'; ul.hidden = false; return; }
+    ul.innerHTML = '<li class="none">Searching</li>'; ul.hidden = false;
+    try {
+      const list = await geocode(q);
+      if (!list.length) { ul.innerHTML = '<li class="none">No match. Try adding the area, for example "T Nagar Chennai".</li>'; return; }
+      ul.innerHTML = list.map((p, i) => `<li><button type="button" data-i="${i}">${esc(p.name)}</button></li>`).join('');
+      ul.querySelectorAll('button').forEach(b => b.onclick = () => { choose(which, list[+b.dataset.i]); map.setView([list[+b.dataset.i].lat, list[+b.dataset.i].lng], 15); });
+    } catch (e) { ul.innerHTML = `<li class="none">${esc(e.message)}</li>`; }
+  }
+  ['from', 'to'].forEach(w => {
+    $(w + 'Search').onclick = () => search(w);
+    $(w + 'Input').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); search(w); } });
+    $(w + 'Input').addEventListener('input', () => { pts[w] = null; });   // typing again means "search for this instead"
+  });
+
+  $('useLocation').onclick = () => {
+    if (!navigator.geolocation) return showResult('error', 'Your browser cannot share your location. Type a starting point instead.');
+    $('useLocation').textContent = 'Finding you';
+    navigator.geolocation.getCurrentPosition(pos => {
+      $('useLocation').textContent = 'Use my current location';
+      $('fromInput').value = 'My location';
+      setPoint('from', { lat: pos.coords.latitude, lng: pos.coords.longitude, name: 'My location' });
+      map.setView([pos.coords.latitude, pos.coords.longitude], 15);
+    }, () => {
+      $('useLocation').textContent = 'Use my current location';
+      showResult('error', 'Could not get your location. Allow location access, or type a starting point.');
+    }, { enableHighAccuracy: true, timeout: 10000 });
+  };
+  $('swapBtn').onclick = () => {
+    const a = $('fromInput').value; $('fromInput').value = $('toInput').value; $('toInput').value = a;
+    const p = pts.from, q = pts.to;
+    pts.from = pts.to = null;
+    [ptMarkers.from, ptMarkers.to].forEach(m => m && map.removeLayer(m));
+    ptMarkers.from = ptMarkers.to = null;
+    if (q) setPoint('from', q);
+    if (p) setPoint('to', p);
+  };
+
+  function showResult(kind, html) { const r = $('routeResult'); r.className = 'result ' + kind; r.innerHTML = html; r.hidden = false; }
+  const fmtDist = m => m < 1000 ? Math.round(m) + ' m' : (m / 1000).toFixed(1) + ' km';
+  const fmtTime = s => { const m = Math.max(1, Math.round(s / 60)); return m < 60 ? m + ' min' : Math.floor(m / 60) + ' h ' + (m % 60) + ' min'; };
+  function clearRoute() {
+    [routeLine, fastestLine].forEach(l => l && map.removeLayer(l));
+    routeLine = fastestLine = null;
+  }
+
+  async function resolvePoint(which) {
+    if (pts[which]) return true;
+    const q = $(which + 'Input').value.trim();
+    if (!q) { showResult('error', `<strong>Add a ${which === 'from' ? 'starting point' : 'destination'}.</strong>`); return false; }
+    const list = await geocode(q);
+    if (!list.length) { showResult('error', `<strong>We could not find "${esc(q)}".</strong>Try adding the area, for example "T Nagar Chennai".`); return false; }
+    choose(which, list[0]);
+    return true;
+  }
+
+  async function findRoute() {
+    $('goBtn').disabled = true; $('goBtn').textContent = 'Finding the safest way';
+    $('routeResult').hidden = true;
+    try {
+      if (!(await resolvePoint('from')) || !(await resolvePoint('to'))) return;
+      let url = `/api/route?from=${pts.from.lat},${pts.from.lng}&to=${pts.to.lat},${pts.to.lng}`;
+      testHazards.forEach(h => { url += `&hazard=${h.lat},${h.lng}`; });
+      const r = await fetch(url);
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) return showResult('error', `<strong>${esc(d.error || 'Could not find a route.')}</strong>`);
+      drawRoute(d);
+    } catch (e) {
+      showResult('error', `<strong>${esc(e.message || 'Something went wrong.')}</strong>`);
+    } finally {
+      $('goBtn').disabled = false; $('goBtn').textContent = 'Find safe route';
+    }
+  }
+  function drawRoute(d) {
+    clearRoute();
+    if (d.status !== 'clear') {
+      fastestLine = L.polyline(d.fastest.coordinates, { color: '#D9382C', weight: 4, opacity: 0.75, dashArray: '8 8' }).addTo(map);
+    }
+    routeLine = L.polyline(d.safe.coordinates, { color: '#0B6E99', weight: 6, opacity: 0.95 }).addTo(map);
+    map.fitBounds(routeLine.getBounds(), { padding: [50, 50] });
+
+    const title = { clear: 'Your route is clear', rerouted: 'Safer route found', unavoidable: 'Take care on this trip' }[d.status];
+    const keys = d.status === 'clear' ? '' :
+      `<div class="keyline"><i></i> Safe route</div><div class="keyline"><i class="dash"></i> Fastest route, passes a flooded drain</div>`;
+    const notes = (d.notes || []).map(n => `<div class="notes">${esc(n)}</div>`).join('');
+    showResult(d.status, `<strong>${title}</strong>${esc(d.message)}
+      <div class="stats"><span><b>${fmtDist(d.safe.distance_m)}</b>Distance</span><span><b>${fmtTime(d.safe.duration_s)}</b>Travel time</span></div>${keys}${notes}`);
+  }
+  $('goBtn').onclick = findRoute;
+
+  // ---------- demo tools: a pretend overflow ----------
+  function setTestMode(on) {
+    testMode = on;
+    $('testBtn').textContent = on ? 'Click the map to place it' : 'Add a test overflow';
+    map.getContainer().style.cursor = on ? 'crosshair' : '';
+  }
+  $('testBtn').onclick = () => setTestMode(!testMode);
+  map.on('click', e => {
+    if (!testMode) return;
+    testHazards.push({ lat: e.latlng.lat, lng: e.latlng.lng });
+    testLayers.push(L.circle(e.latlng, { radius: 250, color: '#D9382C', weight: 1.5, dashArray: '2 6', fillColor: '#D9382C', fillOpacity: 0.18 })
+      .bindTooltip('Test overflow (demo only)').addTo(map));
+    setTestMode(false);
+    if (pts.from && pts.to) findRoute();
+  });
+  $('clearTest').onclick = () => {
+    testLayers.forEach(l => map.removeLayer(l)); testLayers.length = 0; testHazards.length = 0;
+    setTestMode(false);
+    if (pts.from && pts.to) findRoute();
+  };
+
+  // ---------- start ----------
+  if (new URLSearchParams(location.search).get('route')) {
+    $('planner').scrollIntoView();
+    $('fromInput').focus();
+  }
+  loadNodes();
+  setInterval(loadNodes, 15000);
+</script>
+</body>
+</html>

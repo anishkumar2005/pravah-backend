@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Staff sign-in | Pravaah</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/app.css">
+<style>
+  .center { min-height: calc(100vh - 63px); display: grid; place-items: center; padding: 24px 16px; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 32px; width: 100%; max-width: 400px; }
+  .lockmark { width: 52px; height: 52px; border-radius: 14px; background: var(--line-2); color: var(--ink); display: grid; place-items: center; margin-bottom: 18px; }
+  h1 { font-size: 23px; font-weight: 600; letter-spacing: -0.015em; }
+  .sub { color: var(--ink-2); font-size: 14.5px; margin: 6px 0 22px; }
+  label { display: block; font-size: 14px; font-weight: 600; margin-bottom: 6px; }
+  .field { margin-bottom: 16px; }
+  input { width: 100%; padding: 11px 12px; border: 1px solid #C3CFDA; border-radius: 8px; font-size: 15px; background: #fff; color: var(--ink); }
+  input:focus { border-color: var(--water); outline: 2px solid var(--water-soft); }
+  .pw { position: relative; }
+  .pw button { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--water); font-size: 13px; font-weight: 600; padding: 6px 8px; border-radius: 6px; }
+  .pw input { padding-right: 64px; }
+  .err { background: var(--crit-soft); color: #8E241C; border-radius: 8px; padding: 10px 12px; font-size: 14px; margin-bottom: 16px; }
+  .btn.full { width: 100%; padding: 12px; font-size: 15px; }
+  .back { display: block; text-align: center; margin-top: 18px; font-size: 14px; }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="/">
+    <span class="brand-mark" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3s6 6.2 6 10.5a6 6 0 0 1-12 0C6 9.2 12 3 12 3z"/></svg></span>
+    <span><span class="name">Pravaah</span><span class="tag">Drain overflow warnings</span></span>
+  </a>
+  <nav class="nav"><a href="/">Home</a><a href="/map">Live map</a></nav>
+</header>
+
+<main class="center">
+  <form class="card" id="form" novalidate>
+    <div class="lockmark" aria-hidden="true">
+      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+    </div>
+    <h1>Municipal staff sign-in</h1>
+    <p class="sub">Only authorised municipal workers can open the dashboard.</p>
+    <div class="err" id="err" role="alert" hidden></div>
+    <div class="field"><label for="user">Username</label><input id="user" name="username" autocomplete="username" autofocus required></div>
+    <div class="field"><label for="pass">Password</label>
+      <div class="pw"><input id="pass" name="password" type="password" autocomplete="current-password" required><button type="button" id="toggle">Show</button></div>
+    </div>
+    <button class="btn full" id="submit" type="submit">Sign in</button>
+    <a class="back" href="/">Back to home</a>
+  </form>
+</main>
+
+<script>
+  const $ = id => document.getElementById(id);
+  const params = new URLSearchParams(location.search);
+  let next = params.get('next') || '/dashboard';
+  if (!next.startsWith('/') || next.startsWith('//')) next = '/dashboard';   // never send people to another website
+
+  $('toggle').onclick = () => {
+    const show = $('pass').type === 'password';
+    $('pass').type = show ? 'text' : 'password';
+    $('toggle').textContent = show ? 'Hide' : 'Show';
+  };
+  function showError(msg) { const e = $('err'); e.textContent = msg; e.hidden = false; }
+
+  $('form').addEventListener('submit', async ev => {
+    ev.preventDefault();
+    $('err').hidden = true;
+    const username = $('user').value.trim(), password = $('pass').value;
+    if (!username || !password) return showError('Enter your username and password.');
+    $('submit').disabled = true; $('submit').textContent = 'Signing in';
+    try {
+      const r = await fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username, password }) });
+      const data = await r.json().catch(() => ({}));
+      if (r.ok) { location.href = next; return; }
+      showError(data.error || 'Could not sign in. Please try again.');
+    } catch (e) {
+      showError('Could not reach the server. Check your connection and try again.');
+    }
+    $('submit').disabled = false; $('submit').textContent = 'Sign in';
+  });
+</script>
+</body>
+</html>
